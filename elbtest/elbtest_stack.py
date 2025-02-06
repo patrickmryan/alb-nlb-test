@@ -77,13 +77,15 @@ service httpd start
         test_sg.connections.allow_from(intra_vpc, ec2.Port.tcp(http_port))
         template.connections.add_security_group(test_sg)
 
-        lb = elbv2.NetworkLoadBalancer(
-            self, "NLB", vpc=vpc, internet_facing=False, vpc_subnets=asg_subnets
+
+        alb = elbv2.ApplicationLoadBalancer(self, "ALB",
+            vpc=vpc,
+            internet_facing=True
         )
 
-        network_target_group = elbv2.NetworkTargetGroup(
+        application_target_group = elbv2.ApplicationTargetGroup(
             self,
-            "NLBtargetgroup",
+            "ALBtargetgroup",
             port=80,
             vpc=vpc,
             target_type=elbv2.TargetType.INSTANCE,
@@ -103,11 +105,32 @@ service httpd start
             group_metrics=[autoscaling.GroupMetrics.all()],
             update_policy=autoscaling.UpdatePolicy.rolling_update(),
         )
-        asg.attach_to_network_target_group(network_target_group)
+        asg.attach_to_application_target_group(application_target_group)
 
-        listener = lb.add_listener(
-            "NLBlistener",
+        alb_listener = alb.add_listener(
+            "ALBlistener",
             port=http_port,
-            default_action=elbv2.NetworkListenerAction.forward([network_target_group]),
-            protocol=elbv2.Protocol.TCP,
+            default_action=elbv2.ListenerAction.forward([application_target_group]),
+            protocol=elbv2.ApplicationProtocol.HTTP   # elbv2.Protocol.TCP,
         )
+
+        # nlb = elbv2.NetworkLoadBalancer(
+        #     self, "NLB", vpc=vpc, internet_facing=False, vpc_subnets=asg_subnets
+        # )
+
+
+        # network_target_group = elbv2.NetworkTargetGroup(
+        #     self,
+        #     "NLBtargetgroup",
+        #     port=80,
+        #     vpc=vpc,
+        #     target_type=elbv2.TargetType.ALB,
+        # )
+
+
+        # listener = nlb.add_listener(
+        #     "NLBlistener",
+        #     port=http_port,
+        #     default_action=elbv2.NetworkListenerAction.forward([network_target_group]),
+        #     protocol=elbv2.Protocol.TCP,
+        # )
