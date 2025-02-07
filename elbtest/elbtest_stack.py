@@ -52,15 +52,12 @@ service httpd start
                 {
                     "Name": "tag:aws-cdk:subnet-name",
                     "Values": ["egress"],
-                },            
+                },
             ]
         )
         subnet_ids = [subnet["SubnetId"] for subnet in response["Subnets"]]
 
         asg_subnets = ec2.SubnetSelection(
-            # subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,  #PRIVATE_WITH_EGRESS,
-            # availability_zones=(self.availability_zones)[:2],
-            # subnet_filters=[]
             subnets=[ec2.Subnet.from_subnet_id(self, f"subnet-{i}", subnet_id) for i, subnet_id in enumerate(subnet_ids)]
         )
         for subnet in asg_subnets.subnets:
@@ -98,12 +95,16 @@ service httpd start
         test_sg.connections.allow_from(intra_vpc, ec2.Port.tcp(http_port))
         template.connections.add_security_group(test_sg)
 
+        lb_sg = ec2.SecurityGroup(self, "LBSG", vpc=vpc)
+        lb_sg.connections.allow_from(intra_vpc, ec2.Port.all_traffic())
+
 
         alb = elbv2.ApplicationLoadBalancer(self, "ALB",
             vpc=vpc,
             vpc_subnets=asg_subnets,
             internet_facing=False
         )
+        alb.add_security_group(lb_sg)
 
         application_target_group = elbv2.ApplicationTargetGroup(
             self,
@@ -133,7 +134,7 @@ service httpd start
             "ALBlistener",
             port=http_port,
             default_action=elbv2.ListenerAction.forward([application_target_group]),
-            protocol=elbv2.ApplicationProtocol.HTTP   # elbv2.Protocol.TCP,
+            protocol=elbv2.ApplicationProtocol.HTTP
         )
 
 
@@ -143,38 +144,20 @@ service httpd start
 
         # create the NLB that will sit in front of the ALB
         nlb = elbv2.NetworkLoadBalancer(
-            self, "NLB", vpc=vpc, internet_facing=False, vpc_subnets=asg_subnets
+            self, "NLB",
+            vpc=vpc,
+            internet_facing=True,
+            vpc_subnets=asg_subnets
         )
+        nlb.add_security_group(lb_sg)
+        nlb_listener = nlb.add_listener("NLBListener", port=http_port)
 
-        # create TG
-        # target type is ALB
-        # TCP 80
-        # VPC
-        # register ALB as target
-
-        network_target_group = elbv2.NetworkTargetGroup(
+        nlb_target_group = elbv2.NetworkTargetGroup(
             self,
             "NLBtargetgroup",
             port=80,
             vpc=vpc,
             target_type=elbv2.TargetType.ALB,
         )
-        # network_target_group.add_target(alb)
-
-        # # network_target_group = elbv2.NetworkTargetGroup(self, 
-        # #             "NLBTargetGroup", 
-        # #             target_type=elbv2.TargetType.IP, 
-        # #             targets=[alb])
-
-        external_port = 8080
-        nlb_listener = nlb.add_listener(
-            "NLBlistener",
-            port=external_port,  # http_port,
-            default_target_groups=[network_target_group],
-            # default_action=elbv2.ListenerAction.forward([network_target_group]),
-            # protocol=elbv2.ApplicationProtocol.HTTP,
-        )
-
-        # nlb_listener.add_targets("NLBtargetgroup", targets=[alb], port=external_port)
-
-        # add EIP to NLB
+        nlb_target_group.add_target(alb)
+        nlb_listener.add_target_groups("AddTargetGroup", target_groups=[nlb_target_group])
