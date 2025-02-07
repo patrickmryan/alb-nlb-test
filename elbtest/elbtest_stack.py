@@ -6,6 +6,7 @@ from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
     # aws_elasticloadbalancingv2_targets as elb_targets,
     aws_autoscaling as autoscaling,
+    Annotations,
 )
 from constructs import Construct
 import boto3
@@ -62,8 +63,8 @@ service httpd start
             # subnet_filters=[]
             subnets=[ec2.Subnet.from_subnet_id(self, f"subnet-{i}", subnet_id) for i, subnet_id in enumerate(subnet_ids)]
         )
-
-        # aws-cdk:subnet-type  = Isolated
+        for subnet in asg_subnets.subnets:
+            Annotations.of(subnet).acknowledge_warning('@aws-cdk/aws-ec2:noSubnetRouteTableId')
 
         template_sg = ec2.SecurityGroup(self, "WebServerSG", vpc=vpc)
 
@@ -135,33 +136,44 @@ service httpd start
             protocol=elbv2.ApplicationProtocol.HTTP   # elbv2.Protocol.TCP,
         )
 
-        # # create the NLB that will sit in front of the ALB
-        # nlb = elbv2.NetworkLoadBalancer(
-        #     self, "NLB", vpc=vpc, internet_facing=False, vpc_subnets=asg_subnets
-        # )
 
-        # # network_target_group = elbv2.NetworkTargetGroup(
-        # #     self,
-        # #     "NLBtargetgroup",
-        # #     port=80,
-        # #     vpc=vpc,
-        # #     target_type=elbv2.TargetType.ALB,
-        # # )
-        # # network_target_group.add_target(alb)
+        # create NLB, internal
+        # VPC, isolated subnets
+        # default s.g.
+
+        # create the NLB that will sit in front of the ALB
+        nlb = elbv2.NetworkLoadBalancer(
+            self, "NLB", vpc=vpc, internet_facing=False, vpc_subnets=asg_subnets
+        )
+
+        # create TG
+        # target type is ALB
+        # TCP 80
+        # VPC
+        # register ALB as target
+
+        network_target_group = elbv2.NetworkTargetGroup(
+            self,
+            "NLBtargetgroup",
+            port=80,
+            vpc=vpc,
+            target_type=elbv2.TargetType.ALB,
+        )
+        # network_target_group.add_target(alb)
 
         # # network_target_group = elbv2.NetworkTargetGroup(self, 
         # #             "NLBTargetGroup", 
         # #             target_type=elbv2.TargetType.IP, 
         # #             targets=[alb])
 
-        # external_port = 8080
-
-        # nlb_listener = nlb.add_listener(
-        #     "NLBlistener",
-        #     port=external_port,  # http_port,
-        #     # default_action=elbv2.ListenerAction.forward([network_target_group]),
-        #     # protocol=elbv2.ApplicationProtocol.HTTP,
-        # )
+        external_port = 8080
+        nlb_listener = nlb.add_listener(
+            "NLBlistener",
+            port=external_port,  # http_port,
+            default_target_groups=[network_target_group],
+            # default_action=elbv2.ListenerAction.forward([network_target_group]),
+            # protocol=elbv2.ApplicationProtocol.HTTP,
+        )
 
         # nlb_listener.add_targets("NLBtargetgroup", targets=[alb], port=external_port)
 
