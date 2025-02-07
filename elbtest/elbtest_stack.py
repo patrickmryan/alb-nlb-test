@@ -8,13 +8,13 @@ from aws_cdk import (
     aws_autoscaling as autoscaling,
 )
 from constructs import Construct
-
+import boto3
 
 class ElbtestStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        http_port = 80
+        ec2_client = boto3.client("ec2")
 
         vpc_name = self.node.try_get_context("VpcName")
 
@@ -42,10 +42,28 @@ service httpd start
 
         intra_vpc = ec2.Peer.ipv4(vpc.vpc_cidr_block)
 
-        asg_subnets = ec2.SubnetSelection(
-            subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
-            availability_zones=(self.availability_zones)[:2],
+        response = ec2_client.describe_subnets(
+            Filters=[
+                {
+                    "Name": "vpc-id",
+                    "Values": [vpc.vpc_id],
+                },
+                {
+                    "Name": "tag:aws-cdk:subnet-name",
+                    "Values": ["egress"],
+                },            
+            ]
         )
+        subnet_ids = [subnet["SubnetId"] for subnet in response["Subnets"]]
+
+        asg_subnets = ec2.SubnetSelection(
+            # subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,  #PRIVATE_WITH_EGRESS,
+            # availability_zones=(self.availability_zones)[:2],
+            # subnet_filters=[]
+            subnets=[ec2.Subnet.from_subnet_id(self, f"subnet-{i}", subnet_id) for i, subnet_id in enumerate(subnet_ids)]
+        )
+
+        # aws-cdk:subnet-type  = Isolated
 
         template_sg = ec2.SecurityGroup(self, "WebServerSG", vpc=vpc)
 
@@ -68,6 +86,8 @@ service httpd start
             user_data=user_data,
         )
 
+        http_port = 80
+
         template_sg.connections.allow_from(intra_vpc, ec2.Port.tcp(http_port))
         template_sg.connections.allow_from(intra_vpc, ec2.Port.tcp(22))
 
@@ -80,7 +100,8 @@ service httpd start
 
         alb = elbv2.ApplicationLoadBalancer(self, "ALB",
             vpc=vpc,
-            internet_facing=True
+            vpc_subnets=asg_subnets,
+            internet_facing=False
         )
 
         application_target_group = elbv2.ApplicationTargetGroup(
@@ -114,23 +135,34 @@ service httpd start
             protocol=elbv2.ApplicationProtocol.HTTP   # elbv2.Protocol.TCP,
         )
 
+        # # create the NLB that will sit in front of the ALB
         # nlb = elbv2.NetworkLoadBalancer(
         #     self, "NLB", vpc=vpc, internet_facing=False, vpc_subnets=asg_subnets
         # )
 
+        # # network_target_group = elbv2.NetworkTargetGroup(
+        # #     self,
+        # #     "NLBtargetgroup",
+        # #     port=80,
+        # #     vpc=vpc,
+        # #     target_type=elbv2.TargetType.ALB,
+        # # )
+        # # network_target_group.add_target(alb)
 
-        # network_target_group = elbv2.NetworkTargetGroup(
-        #     self,
-        #     "NLBtargetgroup",
-        #     port=80,
-        #     vpc=vpc,
-        #     target_type=elbv2.TargetType.ALB,
-        # )
+        # # network_target_group = elbv2.NetworkTargetGroup(self, 
+        # #             "NLBTargetGroup", 
+        # #             target_type=elbv2.TargetType.IP, 
+        # #             targets=[alb])
 
+        # external_port = 8080
 
-        # listener = nlb.add_listener(
+        # nlb_listener = nlb.add_listener(
         #     "NLBlistener",
-        #     port=http_port,
-        #     default_action=elbv2.NetworkListenerAction.forward([network_target_group]),
-        #     protocol=elbv2.Protocol.TCP,
+        #     port=external_port,  # http_port,
+        #     # default_action=elbv2.ListenerAction.forward([network_target_group]),
+        #     # protocol=elbv2.ApplicationProtocol.HTTP,
         # )
+
+        # nlb_listener.add_targets("NLBtargetgroup", targets=[alb], port=external_port)
+
+        # add EIP to NLB

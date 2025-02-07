@@ -9,7 +9,7 @@ from elbtest.elbtest_stack import ElbtestStack
 app = cdk.App()
 ElbtestStack(
     app,
-    "ElbtestStack",
+    "LBtestStack",
     env=cdk.Environment(
         account=os.getenv("CDK_DEFAULT_ACCOUNT"), region=os.getenv("CDK_DEFAULT_REGION")
     ),

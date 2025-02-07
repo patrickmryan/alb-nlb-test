@@ -15,7 +15,7 @@
     ]
   },
   "context": {
-    "VpcName": "pmr-lb-test-vpc",
+    "VpcName": "MissionVpc",
 
     "@aws-cdk/aws-apigateway:usagePlanKeyOrderInsensitiveId": true,
     "@aws-cdk/core:stackRelativeExports": true,
