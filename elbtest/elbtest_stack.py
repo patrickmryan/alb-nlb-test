@@ -183,9 +183,12 @@ service httpd start
             port=https_port,
             default_action=elbv2.ListenerAction.forward([application_target_group]),
             protocol=elbv2.ApplicationProtocol.HTTPS,
+            # openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 \
+            #      -days 3650 -nodes -subj "/C=US/ST=MD/L=Jessup/O=Cisco/OU=W4G/CN=lbtest.infradev.ciscops.io"
+            # aws iam upload-server-certificate --server-certificate-name lbtest-infradev-ciscops-io --certificate-body file://cert.pem --private-key file://key.pem
             certificates=[
                 elbv2.ListenerCertificate.from_arn(
-                    "arn:aws:iam::475158401257:server-certificate/cisco-lbtest"
+                    f"arn:aws:iam::{self.account}:server-certificate/cisco-lbtest"
                 )
             ],
         )
